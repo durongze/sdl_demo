@@ -141,9 +141,6 @@ int ProcConsole(SDL_Rect *rect)
 
 int ProcWindow(SDL_Event event, SDL_Rect* rect)
 {
-    
-    WCHAR title[256] = {0};
-
     switch (event.window.event) {
     case SDL_WINDOWEVENT_LEAVE:
         break;
@@ -159,13 +156,82 @@ int ProcWindow(SDL_Event event, SDL_Rect* rect)
 
 typedef unsigned char byte;
 
+typedef enum {
+    YUV_FMT_YV12,
+    YUV_FMT_YU12,
+    YUV_FMT_NV12,
+    YUV_FMT_NV21,
+}YuvFmt;
+
 typedef struct {
     byte* y;
     byte* u;
     byte* v;
-    int w;
-    int h;
+}YuvPix;
+
+typedef struct {
+    size_t w;
+    size_t h;
+}YuvSize;
+
+typedef struct {
+    YuvPix base;
+    YuvSize size;
+    YuvFmt fmt;
 }Yuv;
+
+int YuvInit(Yuv* yuv, byte *b, YuvFmt fmt, size_t w, size_t h) 
+{
+    yuv->base.y = b;
+    yuv->base.u = b + w * h;
+    yuv->base.v = b + w * h;
+    yuv->fmt = fmt;
+    yuv->size.w = w;
+    yuv->size.h = h;
+
+    switch (yuv->fmt)
+    {
+    case YUV_FMT_YV12:
+        yuv->base.v = yuv->base.u + w * h;
+        break;
+    case YUV_FMT_YU12:
+        yuv->base.u = yuv->base.u + w * h;
+        break;
+    case YUV_FMT_NV12:
+    case YUV_FMT_NV21:
+    default:
+        break;
+    }
+    return 0;
+}
+
+int YuvIdx(Yuv* yuv, size_t row, size_t col, YuvPix *pix)
+{
+    switch (yuv->fmt)
+    {
+    case YUV_FMT_YU12:
+    case YUV_FMT_YV12:
+        pix->y = &yuv->base.y[row * yuv->size.w + col];
+        pix->u = &yuv->base.u[row / 2 * yuv->size.w / 2 + col / 2];
+        pix->v = &yuv->base.v[row / 2 * yuv->size.w / 2 + col / 2];
+        break;
+    case YUV_FMT_NV12:
+    case YUV_FMT_NV21:
+        pix->y = &yuv->base.y[row * yuv->size.w + col];
+        if (row % 4 < 2) {
+            pix->u = &yuv->base.u[row / 4 * yuv->size.w + col / 2 + 1];
+            pix->v = &yuv->base.v[row / 4 * yuv->size.w + col / 2 + 0];
+        }
+        else {
+            pix->u = &yuv->base.u[row / 4 * yuv->size.w + yuv->size.w / 2 + col / 2 + 1];
+            pix->v = &yuv->base.v[row / 4 * yuv->size.w + yuv->size.w / 2 + col / 2 + 0];
+        }
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
 
 int yuv_fill_line(byte* b, size_t bsz, size_t cross, size_t crossIdx, byte val, size_t specCol)
 {
@@ -177,7 +243,7 @@ int yuv_fill_line(byte* b, size_t bsz, size_t cross, size_t crossIdx, byte val, 
 
     for (idxCol = 0; idxCol < width; ++idxCol) {
         if (idxCol % cross == crossIdx) {
-            if (idxCol / cross == specCol) {
+            if (idxCol / cross == specCol / cross) {
                 b[idxCol] = val;
             }
             else {
@@ -198,14 +264,28 @@ int yuv_fill(byte* b, size_t bsz, size_t width, size_t height,
     return 0;
 }
 
+int FillYuvRect(Yuv* yuv, SDL_Rect* rect)
+{
+    YuvPix pix = { 0 };
+    size_t row, col;
+    for (row = rect->x; row < rect->x + rect->h; row++) {
+        for (col = rect->y; col < rect->y + rect->w; col++) {
+            YuvIdx(yuv, row, col, &pix);
+            *pix.y = 111;
+            // *pix.u = 122;
+            // *pix.v = 133;
+        }
+    }
+    
+    return 0;
+}
+
 int FillYuv(Yuv* yuv)
 {
-    static size_t specCol = 0;
-    specCol++;
-    size_t yuvSize = yuv->w * yuv->h;
-    yuv_fill(yuv->y, yuvSize, yuv->w, yuv->h,     1, 0, 11, specCol);
-    yuv_fill(yuv->u, yuvSize, yuv->w, yuv->h / 2, 2, 0, 22, specCol);
-    yuv_fill(yuv->v, yuvSize, yuv->w, yuv->h / 2, 2, 1, 33, specCol);
+    yuv_fill(yuv->base.y, yuv->size.w * yuv->size.h, yuv->size.w, yuv->size.h, 1, 0, 255, 0);
+    yuv_fill(yuv->base.u, yuv->size.w * yuv->size.h / 2, yuv->size.w, yuv->size.h / 2, 2, 0, 255, 0);
+    yuv_fill(yuv->base.u, yuv->size.w * yuv->size.h / 2, yuv->size.w, yuv->size.h / 2, 2, 1, 255, 0);
+    // yuv_fill(yuv->base.v, yuv->size.w * yuv->size.h / 4, yuv->size.w / 2, yuv->size.h / 2, 1, 0, 255, 0);
     return 0;
 }
 
@@ -215,17 +295,14 @@ Yuv *GenYuv(int w, int h)
     if (yuv == NULL) {
         return NULL;
     }
-    yuv->w = w;
-    yuv->h = h;
-    size_t yuvSize = yuv->w * yuv->h;
-    yuv->y = (byte*)malloc(yuvSize * sizeof(byte) * 3);
-    yuv->u = yuv->y + yuvSize; // (byte*)malloc(yuvSize * sizeof(byte));
-    yuv->v = yuv->u + yuvSize; // (byte*)malloc(yuvSize * sizeof(byte));
+
+    byte *b = (byte*)malloc(w * h * sizeof(byte) * 3);
+    YuvInit(yuv, b, YUV_FMT_NV21, w, h);
     FillYuv(yuv);
     return yuv;
 }
 
-#define SURFACE
+// #define SURFACE
 
 /* This is where execution begins [console apps, unicode] */
 int
@@ -241,15 +318,14 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
         cur = pic2;
     }
 
-
 #ifdef SURFACE
     SDL_Window* window = SDL_CreateWindow("win", 100, 100, cur->w, cur->h, SDL_WINDOW_SHOWN);
     SDL_Surface* surface = SDL_GetWindowSurface(window);
 #else
     Yuv* yuv = GenYuv(480, 320);
-    SDL_Window* window = SDL_CreateWindow("win", 100, 100, yuv->w, yuv->h, SDL_WINDOW_SHOWN);
+    SDL_Window* window = SDL_CreateWindow("win", 100, 100, yuv->size.w, yuv->size.h, SDL_WINDOW_SHOWN);
     SDL_Renderer* render = SDL_CreateRenderer(window, -1, 0);
-    SDL_Texture* texture = SDL_CreateTexture(render, SDL_PIXELFORMAT_NV12, SDL_TEXTUREACCESS_STREAMING, yuv->w, yuv->h);
+    SDL_Texture* texture = SDL_CreateTexture(render, SDL_PIXELFORMAT_NV12, SDL_TEXTUREACCESS_STREAMING, yuv->size.w, yuv->size.h);
 #endif
     SDL_Event event;
     SDL_Rect mouseRect, winRect;
@@ -258,7 +334,7 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
 #ifdef SURFACE
         SDL_FillRect(surface, NULL, 0);
 #else
-        FillYuv(yuv);
+        // FillYuv(yuv);
         SDL_RenderClear(render);
 #endif
         while (SDL_PollEvent(&event)) {
@@ -268,6 +344,7 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
                 break;
             case SDL_MOUSEBUTTONDOWN:
                 ProcMouse(event, &mouseRect);
+                FillYuvRect(yuv, &mouseRect);
                 break;
             case SDL_MOUSEMOTION:
                 ProcMouseMotion(event, &mouseRect);
@@ -291,7 +368,7 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
         SDL_UpdateTexture(texture, NULL, 
             // yuv->y, yuv->w,
             // yuv->u, yuv->w / 2,
-            yuv->y, yuv->w
+            yuv->base.y, yuv->size.w
         );
         SDL_RenderCopy(render, texture, NULL, NULL);
         SDL_RenderPresent(render);
@@ -307,4 +384,3 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
     SDL_Quit();
     return 0;
 }
-
