@@ -268,8 +268,8 @@ int FillYuvRect(Yuv* yuv, SDL_Rect* rect)
 {
     YuvPix pix = { 0 };
     size_t row, col;
-    for (row = rect->x; row < rect->x + rect->h; row++) {
-        for (col = rect->y; col < rect->y + rect->w; col++) {
+    for (row = rect->y; row < rect->y + rect->h; row++) {
+        for (col = rect->x; col < rect->x + rect->w; col++) {
             YuvIdx(yuv, row, col, &pix);
             *pix.y = 111;
             // *pix.u = 122;
