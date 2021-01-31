@@ -218,13 +218,13 @@ int YuvIdx(Yuv* yuv, size_t row, size_t col, YuvPix *pix)
     case YUV_FMT_NV12:
     case YUV_FMT_NV21:
         pix->y = &yuv->base.y[row * yuv->size.w + col];
-        if (row % 4 < 2) {
-            pix->u = &yuv->base.u[row / 4 * yuv->size.w + col / 2 + 1];
-            pix->v = &yuv->base.v[row / 4 * yuv->size.w + col / 2 + 0];
+        if (col % 2) {
+            pix->u = &yuv->base.u[row / 2 * yuv->size.w + col - 1];
+            pix->v = &yuv->base.u[row / 2 * yuv->size.w + col];
         }
         else {
-            pix->u = &yuv->base.u[row / 4 * yuv->size.w + yuv->size.w / 2 + col / 2 + 1];
-            pix->v = &yuv->base.v[row / 4 * yuv->size.w + yuv->size.w / 2 + col / 2 + 0];
+            pix->u = &yuv->base.v[row / 2 * yuv->size.w + col];
+            pix->v = &yuv->base.u[row / 2 * yuv->size.w + col + 1];
         }
         break;
     default:
