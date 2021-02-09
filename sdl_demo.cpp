@@ -302,12 +302,90 @@ Yuv *GenYuv(int w, int h)
     return yuv;
 }
 
+void FreeYuv(Yuv* yuv)
+{
+    if (yuv == NULL) {
+        return;
+    }
+    if (yuv->base.y != NULL) {
+        free(yuv->base.y);
+    }
+    free(yuv);
+}
+
+int SwapYuvPix(YuvPix src, YuvPix dst)
+{
+    *src.y = (*src.y) ^ (*dst.y);
+    *dst.y = (*src.y) ^ (*dst.y);
+    *src.y = (*src.y) ^ (*dst.y);
+
+    *src.u = (*src.u) ^ (*dst.u);
+    *dst.u = (*src.u) ^ (*dst.u);
+    *src.u = (*src.u) ^ (*dst.u);
+    
+    *src.v = (*src.v) ^ (*dst.v);
+    *dst.v = (*src.v) ^ (*dst.v);
+    *src.v = (*src.v) ^ (*dst.v);
+    return 0;
+}
+
+int AssignYuvPix(YuvPix src, YuvPix dst)
+{
+    *dst.y = *src.y;
+    *dst.u = *src.u;
+    *dst.v = *src.v;
+    return 0;
+}
+
+Yuv* RemoteYuv(Yuv* yuvSrc, int angle)
+{
+    YuvPix srcPix = { 0 };
+    YuvPix dstPix = { 0 };
+    size_t row, col;
+    Yuv* yuvDst = NULL;
+    if (angle % 180 || angle == 0) {
+        yuvDst = GenYuv(yuvSrc->size.h, yuvSrc->size.w);
+    }
+    else {
+        yuvDst = GenYuv(yuvSrc->size.w, yuvSrc->size.h);
+    }
+    for (row = 0; row < yuvSrc->size.h; row++) {
+        for (col = 0; col < yuvSrc->size.w; col++) {
+            YuvIdx(yuvSrc, row, col, &srcPix);
+            switch (angle)
+            {
+            case 90:
+                YuvIdx(yuvDst, col, yuvSrc->size.h - row, &dstPix);
+                break;
+            case 180:
+                YuvIdx(yuvDst, yuvSrc->size.h - row, yuvSrc->size.w - col, &dstPix);
+                break;
+            case 270:
+                YuvIdx(yuvDst, yuvSrc->size.w - col, row, &dstPix);
+                break;
+            default:
+                YuvIdx(yuvDst, col, row, &dstPix);
+                break;
+            }
+  
+            // SwapYuvPix(srcPix, dstPix);
+            AssignYuvPix(srcPix, dstPix);
+        }
+    }
+    FreeYuv(yuvSrc);
+    PrintCtx("w:%d\n", yuvDst->size.w);
+    return yuvDst;
+}
+
+
 // #define SURFACE
 
 /* This is where execution begins [console apps, unicode] */
 int
 console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
 {
+    int Quit = 0;
+    int RemoteAngle = 0;
     SDL_Surface* pic1 = NULL, * pic2 = NULL, * cur = NULL;
     SDL_Init(SDL_INIT_VIDEO);
     
@@ -329,7 +407,7 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
 #endif
     SDL_Event event;
     SDL_Rect mouseRect, winRect;
-    while (1) {
+    while (!Quit) {
         SDL_Delay(300);
 #ifdef SURFACE
         SDL_FillRect(surface, NULL, 0);
@@ -340,7 +418,8 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_QUIT:
-                PrintCtx("\n");
+                Quit = 1;
+                PrintCtx("Quit\n");
                 break;
             case SDL_MOUSEBUTTONDOWN:
                 ProcMouse(event, &mouseRect);
@@ -350,6 +429,8 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
                 ProcMouseMotion(event, &mouseRect);
                 break;
             case SDL_KEYDOWN:
+                yuv = RemoteYuv(yuv, RemoteAngle);
+                RemoteAngle += 90;
                 ProcKeyBoard(event);
                 break;
             case SDL_WINDOWEVENT:
@@ -365,11 +446,7 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
         SDL_FillRect(surface, &mouseRect, 0);
         SDL_UpdateWindowSurface(window);
 #else
-        SDL_UpdateTexture(texture, NULL, 
-            // yuv->y, yuv->w,
-            // yuv->u, yuv->w / 2,
-            yuv->base.y, yuv->size.w
-        );
+        SDL_UpdateTexture(texture, NULL, yuv->base.y, yuv->size.w);
         SDL_RenderCopy(render, texture, NULL, NULL);
         SDL_RenderPresent(render);
 #endif        
@@ -379,8 +456,10 @@ console_wmain(int argc, wchar_t *wargv[], wchar_t *wenvp)
 #else
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(render);
+    FreeYuv(yuv);
 #endif
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 0;
 }
+
